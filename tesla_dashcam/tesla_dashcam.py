@@ -2194,6 +2194,7 @@ def create_movie(
             [video_settings["ffmpeg_exec"]]
             + ["-loglevel", "error"]
             + ffmpeg_params
+            + video_settings["other_params"]
         )
         if movie.duration:
             movie.duration = movie.duration + 3
@@ -2971,7 +2972,7 @@ def main() -> int:
     )
 
     layout_group.add_argument(
-        "--title-screen-map",
+        "--title_screen_map",
         dest="title_screen_map",
         action="store_true",
         help="Show a map of the event location for the first 3 seconds of the movie. Requires the staticmap package",
