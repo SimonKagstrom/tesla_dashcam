@@ -1994,6 +1994,49 @@ def create_movie(
         _LOGGER.debug(f"{get_current_timestamp()}Movie list is empty")
         return True
 
+    title_image_filename = None
+    if title_image:
+        title_image_fh, title_image_filename = mkstemp(suffix=".png", text=False)
+
+        title_image.save(title_image_filename)
+
+    title_video_filename = None
+    if title_image_filename:
+        title_video_fd, title_video_filename = mkstemp(suffix=".mp4", text=False)
+        ffmpeg_params = [
+            "-y",
+            "-framerate",
+            "1/3",
+            "-i",
+            title_image_filename,
+            title_video_filename,
+        ]
+        ffmpeg_command = (
+            [video_settings["ffmpeg_exec"]]
+            + ["-loglevel", "error"]
+            + ffmpeg_params
+            + video_settings["other_params"]
+        )
+        if movie.duration:
+            movie.duration = movie.duration + 3
+
+        try:
+            run(ffmpeg_command, capture_output=True, check=True)
+        except CalledProcessError as exc:
+            print(
+                "\t\tError trying to create title video {base_name}. RC: {rc}\n"
+                "\t\tCommand: {command}\n"
+                "\t\tError: {stderr}\n\n".format(
+                    base_name=title_video_filename,
+                    rc=exc.returncode,
+                    command=exc.cmd,
+                    stderr=exc.stderr,
+                )
+            )
+            movie_filename = None
+            duration = 0
+
+
     # Go through the list of clips to create the command and content for chapter meta file.
     ffmpeg_join_filehandle, ffmpeg_join_filename = mkstemp(suffix=".txt", text=True)
     total_clips = 0
@@ -2004,6 +2047,8 @@ def create_movie(
     end_timestamp = None
     chapter_offset = chapter_offset * 1000000000
     with os.fdopen(ffmpeg_join_filehandle, "w") as fp:
+        if title_video_filename:
+            fp.write(f"file 'file:{title_video_filename.replace(os.sep, '/')}'{os.linesep}")
         # Loop through the list sorted by video timestamp.
         for movie_item in movie.sorted:
             video_clip = movie.item(movie_item)
@@ -2083,12 +2128,6 @@ def create_movie(
     ffmpeg_meta_filehandle, ffmpeg_meta_filename = mkstemp(suffix=".txt", text=True)
     with os.fdopen(ffmpeg_meta_filehandle, "w") as fp:
         fp.write(meta_content)
-
-    title_image_filename = None
-    if title_image:
-        title_image_fh, title_image_filename = mkstemp(suffix=".png", text=False)
-
-        title_image.save(title_image_filename)
 
     ffmpeg_params = [
         "-f",
@@ -2170,57 +2209,6 @@ def create_movie(
                       f"{moviefile_timestamp.strftime('%Y-%m-%dT%H-%M-%S')}")
         moviefile_timestamp = mktime(moviefile_timestamp.timetuple())
         os.utime(movie_filename, (moviefile_timestamp, moviefile_timestamp))
-
-    if title_image_filename and movie_filename:
-        movie_filename_tmp = movie_filename + '.tmp'
-        shutil.move(movie_filename, movie_filename_tmp)
-        ffmpeg_params = [
-            "-y",
-            "-loop",
-            "1",
-            "-framerate",
-            "24",
-            "-t",
-            "3",
-            "-i",
-            title_image_filename,
-            "-i",
-            movie_filename_tmp,
-            "-filter_complex",
-            "[0:0] [1:0] concat=n=2:v=1:a=0",
-            movie_filename,
-        ]
-        ffmpeg_command = (
-            [video_settings["ffmpeg_exec"]]
-            + ["-loglevel", "error"]
-            + ffmpeg_params
-            + video_settings["other_params"]
-        )
-        if movie.duration:
-            movie.duration = movie.duration + 3
-
-        try:
-            run(ffmpeg_command, capture_output=True, check=True)
-        except CalledProcessError as exc:
-            print(
-                "\t\tError trying to create movie {base_name}. RC: {rc}\n"
-                "\t\tCommand: {command}\n"
-                "\t\tError: {stderr}\n\n".format(
-                    base_name=movie_filename,
-                    rc=exc.returncode,
-                    command=exc.cmd,
-                    stderr=exc.stderr,
-                )
-            )
-            movie_filename = None
-            duration = 0
-
-        try:
-            os.remove(movie_filename_tmp)
-        except:
-            _LOGGER.debug(f"Failed to remove {movie_filename_tmp}")
-            pass
-
 
     # Remove temp join file.
     # noinspection PyBroadException,PyPep8
